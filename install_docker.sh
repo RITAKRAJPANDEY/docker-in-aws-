@@ -1,23 +1,25 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e #Exit immediately if any command fails
+set -euo pipefail
 
-echo "Updating apt package index"
+if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+  echo "This script must be run as root. Try: sudo ./install_docker.sh" >&2
+  exit 1
+fi
 
+echo "Updating apt package index..."
 apt-get update -y
 
-echo "setting up Docker keyring..."
+echo "Setting up Docker keyring..."
 install -m 0755 -d /etc/apt/keyrings
-curl -fsSl https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
 
-chmod a+r /etc/apt/keyrings/doecker.asc
-
-echo "adding docker repository ..."
-
+echo "Adding Docker repository..."
 UBUNTU_CODENAME=$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
 ARCH=$(dpkg --print-architecture)
 
-tee /etc/apt/sources.list.d/docker.sources <<EOF
+cat >/etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
 URIs: https://download.docker.com/linux/ubuntu
 Suites: ${UBUNTU_CODENAME}
@@ -30,5 +32,14 @@ echo "Installing Docker packages..."
 apt-get update -y
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
+echo "Enabling Docker service..."
+systemctl enable --now docker
+
 echo "Checking Docker status..."
-systemctl is-active --quiet docker && echo "Docker is running successfully!"
+if systemctl is-active --quiet docker; then
+  echo "Docker is running successfully."
+  docker --version
+else
+  echo "Docker did not start as expected." >&2
+  exit 1
+fi
